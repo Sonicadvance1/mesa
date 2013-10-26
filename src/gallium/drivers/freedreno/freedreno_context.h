@@ -86,7 +86,9 @@ struct fd_gmem_stateobj {
 	uint16_t minx, miny;
 	uint16_t bin_h, nbins_y;
 	uint16_t bin_w, nbins_x;
+	uint16_t bin_p;          /* bin pitch */
 	uint16_t width, height;
+	bool gmem_workaround;
 };
 
 struct fd_context {
@@ -97,6 +99,14 @@ struct fd_context {
 	struct primconvert_context *primconvert;
 
 	struct util_slab_mempool transfer_pool;
+
+	/* In case of Y=0=BOTTOM (FBO) rendering on a320 we need to
+	 * employ a work-around to increase the gmem-pitch by 32 (one
+	 * tile column) to avoid a slight corruption.  This does not
+	 * seem to be needed on a330 (according to spoofing the gpu-id
+	 * with the blob driver.. I don't have a330 hw yet)
+	 */
+	bool needs_gmem_workaround;
 
 	/* table with PIPE_PRIM_MAX entries mapping PIPE_PRIM_x to
 	 * DI_PT_x value to use for draw initiator.  There are some

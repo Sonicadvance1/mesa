@@ -46,12 +46,12 @@
 
 static void
 emit_mrt(struct fd_ringbuffer *ring, unsigned nr_bufs,
-		struct pipe_surface **bufs, uint32_t *bases, uint32_t bin_w)
+		struct pipe_surface **bufs, uint32_t *bases, uint32_t bin_p)
 {
 	enum a3xx_tile_mode tile_mode;
 	unsigned i;
 
-	if (bin_w) {
+	if (bin_p) {
 		tile_mode = TILE_32X32;
 	} else {
 		tile_mode = LINEAR;
@@ -73,8 +73,8 @@ emit_mrt(struct fd_ringbuffer *ring, unsigned nr_bufs,
 			format = fd3_pipe2color(psurf->format);
 			swap = fd3_pipe2swap(psurf->format);
 
-			if (bin_w) {
-				stride = bin_w * rsc->cpp;
+			if (bin_p) {
+				stride = bin_p * rsc->cpp;
 
 				if (bases) {
 					base = bases[i] * rsc->cpp;
@@ -89,7 +89,7 @@ emit_mrt(struct fd_ringbuffer *ring, unsigned nr_bufs,
 				A3XX_RB_MRT_BUF_INFO_COLOR_TILE_MODE(tile_mode) |
 				A3XX_RB_MRT_BUF_INFO_COLOR_BUF_PITCH(stride) |
 				A3XX_RB_MRT_BUF_INFO_COLOR_SWAP(swap));
-		if (bin_w || (i >= nr_bufs)) {
+		if (bin_p || (i >= nr_bufs)) {
 			OUT_RING(ring, A3XX_RB_MRT_BUF_BASE_COLOR_BUF_BASE(base));
 		} else {
 			OUT_RELOCW(ring, rsc->bo, slice->offset, 0, -1);
@@ -243,11 +243,11 @@ fd3_emit_tile_gmem2mem(struct fd_context *ctx, uint32_t xoff, uint32_t yoff,
 
 static void
 emit_mem2gmem_surf(struct fd_context *ctx, uint32_t base,
-		struct pipe_surface *psurf, uint32_t bin_w)
+		struct pipe_surface *psurf, uint32_t bin_p)
 {
 	struct fd_ringbuffer *ring = ctx->ring;
 
-	emit_mrt(ring, 1, &psurf, &base, bin_w);
+	emit_mrt(ring, 1, &psurf, &base, bin_p);
 
 	fd3_emit_gmem_restore_tex(ring, psurf);
 
@@ -296,7 +296,7 @@ fd3_emit_tile_mem2gmem(struct fd_context *ctx, uint32_t xoff, uint32_t yoff,
 	}
 
 	fd3_emit_rbrc_tile_state(ring,
-			A3XX_RB_RENDER_CONTROL_BIN_WIDTH(gmem->bin_w));
+			A3XX_RB_RENDER_CONTROL_BIN_WIDTH(gmem->bin_p));
 
 	OUT_PKT0(ring, REG_A3XX_RB_DEPTH_CONTROL, 1);
 	OUT_RING(ring, A3XX_RB_DEPTH_CONTROL_ZFUNC(FUNC_LESS));
@@ -362,17 +362,11 @@ fd3_emit_tile_mem2gmem(struct fd_context *ctx, uint32_t xoff, uint32_t yoff,
 			{ .prsc = fd3_ctx->solid_vbuf, .stride = 12, .format = PIPE_FORMAT_R32G32B32_FLOAT },
 		}, 2);
 
-	/* for gmem pitch/base calculations, we need to use the non-
-	 * truncated tile sizes:
-	 */
-	bin_w = gmem->bin_w;
-	bin_h = gmem->bin_h;
-
 	if (ctx->restore & (FD_BUFFER_DEPTH | FD_BUFFER_STENCIL))
-		emit_mem2gmem_surf(ctx, depth_base(gmem), pfb->zsbuf, bin_w);
+		emit_mem2gmem_surf(ctx, depth_base(gmem), pfb->zsbuf, gmem->bin_p);
 
 	if (ctx->restore & FD_BUFFER_COLOR)
-		emit_mem2gmem_surf(ctx, 0, pfb->cbufs[0], bin_w);
+		emit_mem2gmem_surf(ctx, 0, pfb->cbufs[0], gmem->bin_p);
 
 	OUT_PKT0(ring, REG_A3XX_GRAS_SC_CONTROL, 1);
 	OUT_RING(ring, A3XX_GRAS_SC_CONTROL_RENDER_MODE(RB_RENDERING_PASS) |
@@ -462,7 +456,7 @@ fd3_emit_tile_init(struct fd_context *ctx)
 	 * at the right and bottom edge tiles
 	 */
 	OUT_PKT0(ring, REG_A3XX_VSC_BIN_SIZE, 1);
-	OUT_RING(ring, A3XX_VSC_BIN_SIZE_WIDTH(gmem->bin_w) |
+	OUT_RING(ring, A3XX_VSC_BIN_SIZE_WIDTH(gmem->bin_p) |
 			A3XX_VSC_BIN_SIZE_HEIGHT(gmem->bin_h));
 
 	/* TODO we only need to do this if gmem stateobj changes.. or in
@@ -523,11 +517,11 @@ fd3_emit_tile_renderprep(struct fd_context *ctx, uint32_t xoff, uint32_t yoff,
 	OUT_RING(ring, CP_SET_BIN_1_X1(x1) | CP_SET_BIN_1_Y1(y1));
 	OUT_RING(ring, CP_SET_BIN_2_X2(x2) | CP_SET_BIN_2_Y2(y2));
 
-	emit_mrt(ring, pfb->nr_cbufs, pfb->cbufs, NULL, gmem->bin_w);
+	emit_mrt(ring, pfb->nr_cbufs, pfb->cbufs, NULL, gmem->bin_p);
 
 	fd3_emit_rbrc_tile_state(ring,
 			A3XX_RB_RENDER_CONTROL_ENABLE_GMEM |
-			A3XX_RB_RENDER_CONTROL_BIN_WIDTH(gmem->bin_w));
+			A3XX_RB_RENDER_CONTROL_BIN_WIDTH(gmem->bin_p));
 
 	/* setup scissor/offset for current tile: */
 	OUT_PKT0(ring, REG_A3XX_PA_SC_WINDOW_OFFSET, 1);

@@ -431,6 +431,9 @@ fd3_emit_state(struct fd_context *ctx, uint32_t dirty)
 		OUT_RING(ring, A3XX_GRAS_CL_VPORT_YSCALE(ctx->viewport.scale[1]));
 		OUT_RING(ring, A3XX_GRAS_CL_VPORT_ZOFFSET(ctx->viewport.translate[2]));
 		OUT_RING(ring, A3XX_GRAS_CL_VPORT_ZSCALE(ctx->viewport.scale[2]));
+
+		if (ctx->screen->gpu_id == 320)
+			ctx->needs_gmem_workaround |= (ctx->viewport.scale[1] > 0.0);
 	}
 
 	if (dirty & FD_DIRTY_PROG)

@@ -83,7 +83,8 @@ calculate_tiles(struct fd_context *ctx)
 		cpp = util_format_get_blocksize(pfb->cbufs[0]->format);
 
 	if ((gmem->cpp == cpp) &&
-			!memcmp(&gmem->scissor, scissor, sizeof(gmem->scissor))) {
+			!memcmp(&gmem->scissor, scissor, sizeof(gmem->scissor)) &&
+			(ctx->needs_gmem_workaround == gmem->gmem_workaround)) {
 		/* everything is up-to-date */
 		return;
 	}
@@ -125,7 +126,25 @@ calculate_tiles(struct fd_context *ctx)
 		bin_h = align(height / nbins_y, 32);
 	}
 
-	DBG("using %d bins of size %dx%d", nbins_x*nbins_y, bin_w, bin_h);
+	if (ctx->needs_gmem_workaround) {
+		/* if we can increase the pitch without overflowing
+		 * GMEM, then do so:
+		 */
+		if (((bin_w + 32) * bin_h * cpp) > gmem_size) {
+			bin_w -= 32;
+			/* make sure we still fit in nbins_x: */
+			nbins_x = (width + bin_w) / bin_w;
+		}
+		gmem->bin_p = bin_w + 32;
+		ctx->needs_gmem_workaround = false;
+		gmem->gmem_workaround = true;
+	} else {
+		gmem->bin_p = bin_w;
+		gmem->gmem_workaround = false;
+	}
+
+	DBG("using %d bins of size %dx%d (%d)", nbins_x * nbins_y,
+			bin_w, bin_h, gmem->bin_p);
 
 	gmem->scissor = *scissor;
 	gmem->cpp = cpp;
