@@ -443,7 +443,7 @@ emu_run_cat2(struct fd3_emu_ctx *ctx, instr_cat2_t *cat2)
 		dst.i = src1.i + src2.i;
 		break;
 	case OPC_BARY_F:
-		dst.i = src1.i * src2.i;
+		dst.i = (src1.i + 1) * (src2.i + 1);
 		/* bary.f seems to read r0.xy */
 		src2rs.src.dummy12++;
 		src2 = read_src(ctx, 1, src2rs);
@@ -667,7 +667,11 @@ emu_run(struct fd3_emu_ctx *ctx)
 			emu_check(ctx, instr->sync, "needs (sy) on first instruction");
 		}
 
-		ctx->cycle++;
+		// XXX not sure if we need to keep different cycle counters for
+		// XXX tex/alu/sfu, or just tex vs alu/sfu??
+		if (!is_tex(instr))
+			ctx->cycle++;
+
 		ctx->cur = instr;
 
 		if (is_input(instr)) {
