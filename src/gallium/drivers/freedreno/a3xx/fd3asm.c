@@ -213,7 +213,7 @@ int main(int argc, char **argv)
 
 	for (i = 1; i < argc; i++) {
 		const char *filename = argv[i];
-		struct tgsi_token tokens[10000], *toks;
+		struct tgsi_token toks[10000];
 		struct tgsi_parse_context parse;
 		struct fd3_shader_stateobj so_old, so_new;
 		void *ptr;
@@ -225,12 +225,8 @@ int main(int argc, char **argv)
 		printf("************ Reading %s\n", filename);
 		read_file(filename, &ptr, &size);
 
-		if (!tgsi_text_translate(ptr, tokens, Elements(tokens)))
+		if (!tgsi_text_translate(ptr, toks, Elements(toks)))
 			errx(1, "could not parse `%s'", filename);
-
-		toks = fd_transform_lowering(tokens);
-		if (!toks)
-			toks = tokens;
 
 		tgsi_parse_init(&parse, toks);
 		switch (parse.FullHeader.Processor.Processor) {
