@@ -46,11 +46,11 @@
 #include "instr-a3xx.h"
 #include "ir3.h"
 
-int fd3_compile_shader(struct fd3_shader_stateobj *so,
-		const struct tgsi_token *tokens);
+int fd3_compile_shader(struct fd3_shader_variant *so,
+		const struct tgsi_token *tokens, struct fd3_shader_key key);
 
-int fd3_compile_shader_old(struct fd3_shader_stateobj *so,
-		const struct tgsi_token *tokens);
+int fd3_compile_shader_old(struct fd3_shader_variant *so,
+		const struct tgsi_token *tokens, struct fd3_shader_key key);
 
 void fd3_emu_run(void *instrs, uint32_t instrs_count,
 		float *consts, uint32_t consts_size,
@@ -59,7 +59,7 @@ void fd3_emu_run(void *instrs, uint32_t instrs_count,
 /* a nice hack to make a standalone compiler (assembler) for testing */
 
 
-static void dump_info(struct fd3_shader_stateobj *so)
+static void dump_info(struct fd3_shader_variant *so)
 {
 	struct ir3_shader_info info;
 	uint32_t *bin;
@@ -129,7 +129,7 @@ static void randomize(float *buf, int num)
 }
 
 
-static void shader_run(struct fd3_shader_stateobj *so, float *outputs)
+static void shader_run(struct fd3_shader_variant *so, float *outputs)
 {
 	struct ir3_shader_info info;
 	float regs[256];
@@ -179,8 +179,8 @@ static void shader_run(struct fd3_shader_stateobj *so, float *outputs)
 	printf("----------\n");
 }
 
-static void shader_test(struct fd3_shader_stateobj *ref,
-		struct fd3_shader_stateobj *test)
+static void shader_test(struct fd3_shader_variant *ref,
+		struct fd3_shader_variant *test)
 {
 	unsigned i, j;
 
@@ -215,12 +215,18 @@ int main(int argc, char **argv)
 		const char *filename = argv[i];
 		struct tgsi_token toks[10000];
 		struct tgsi_parse_context parse;
-		struct fd3_shader_stateobj so_old, so_new;
+		struct fd3_shader_variant so_old, so_new;
+		struct fd3_shader_key key = {
+
+		};
 		void *ptr;
 		size_t size;
 
 		memset(&so_old, 0, sizeof(so_old));
 		memset(&so_new, 0, sizeof(so_new));
+
+		so_old.key = key;
+		so_new.key = key;
 
 		printf("************ Reading %s\n", filename);
 		read_file(filename, &ptr, &size);
@@ -242,7 +248,7 @@ int main(int argc, char **argv)
 		}
 
 		/* with old compiler: */
-		ret = fd3_compile_shader_old(&so_old, toks);
+		ret = fd3_compile_shader_old(&so_old, toks, key);
 		if (ret) {
 			printf("old compiler failed!\n");
 			return ret;
@@ -250,7 +256,7 @@ int main(int argc, char **argv)
 		dump_info(&so_old);
 
 		/* with new compiler: */
-		ret = fd3_compile_shader(&so_new, toks);
+		ret = fd3_compile_shader(&so_new, toks, key);
 		if (ret) {
 			printf("new compiler failed!\n");
 			return ret;
