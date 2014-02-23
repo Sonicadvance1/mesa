@@ -148,6 +148,7 @@ compile_init(struct fd3_compile_context *ctx, struct fd3_shader_variant *so,
 	unsigned ret;
 	struct tgsi_shader_info *info = &ctx->info;
 	const struct fd_lowering_config lconfig = {
+			.color_two_side = so->key.color_two_side,
 			.lower_DST  = true,
 			.lower_XPD  = true,
 			.lower_SCS  = true,
@@ -1832,6 +1833,7 @@ decl_out(struct fd3_compile_context *ctx, struct tgsi_full_declaration *decl)
 			/* fallthrough */
 		case TGSI_SEMANTIC_PSIZE:
 		case TGSI_SEMANTIC_COLOR:
+		case TGSI_SEMANTIC_BCOLOR:
 		case TGSI_SEMANTIC_GENERIC:
 		case TGSI_SEMANTIC_FOG:
 		case TGSI_SEMANTIC_TEXCOORD:

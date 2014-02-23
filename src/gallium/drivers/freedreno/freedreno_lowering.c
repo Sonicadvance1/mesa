@@ -39,6 +39,9 @@ struct fd_lowering_context {
 	struct tgsi_transform_context base;
 	const struct fd_lowering_config *config;
 	struct tgsi_shader_info *info;
+	unsigned two_side_colors;
+	unsigned two_side_idx[PIPE_MAX_SHADER_INPUTS];
+	int face_idx;
 	unsigned numtmp;
 	struct {
 		struct tgsi_full_src_register src;
@@ -982,11 +985,13 @@ transform_instr(struct tgsi_transform_context *tctx,
 		struct tgsi_full_instruction *inst)
 {
 	struct fd_lowering_context *ctx = fd_lowering_context(tctx);
+	struct tgsi_shader_info *info = ctx->info;
 
 	if (!ctx->emitted_decls) {
 		struct tgsi_full_declaration decl;
 		struct tgsi_full_immediate immed;
-		unsigned tmpbase = ctx->info->file_max[TGSI_FILE_TEMPORARY] + 1;
+		unsigned inbase  = info->file_max[TGSI_FILE_INPUT] + 1;
+		unsigned tmpbase = info->file_max[TGSI_FILE_TEMPORARY] + 1;
 		int i;
 
 		/* declare immediate: */
@@ -999,11 +1004,37 @@ transform_instr(struct tgsi_transform_context *tctx,
 		tctx->emit_immediate(tctx, &immed);
 
 		ctx->imm.Register.File = TGSI_FILE_IMMEDIATE;
-		ctx->imm.Register.Index = ctx->info->immediate_count;
+		ctx->imm.Register.Index = info->immediate_count;
 		ctx->imm.Register.SwizzleX = TGSI_SWIZZLE_X;
 		ctx->imm.Register.SwizzleY = TGSI_SWIZZLE_Y;
 		ctx->imm.Register.SwizzleZ = TGSI_SWIZZLE_Z;
 		ctx->imm.Register.SwizzleW = TGSI_SWIZZLE_W;
+
+		/* additional inputs for BCOLOR's */
+		for (i = 0; i < ctx->two_side_colors; i++) {
+			decl = tgsi_default_full_declaration();
+			decl.Declaration.File = TGSI_FILE_INPUT;
+			decl.Declaration.Semantic = true;
+			decl.Range.First = decl.Range.Last = inbase + i;
+			decl.Semantic.Name = TGSI_SEMANTIC_BCOLOR;
+			decl.Semantic.Index =
+				info->input_semantic_index[ctx->two_side_idx[i]];
+			tctx->emit_declaration(tctx, &decl);
+		}
+
+		/* additional input for FACE */
+		if (ctx->two_side_colors && (ctx->face_idx == -1)) {
+			decl = tgsi_default_full_declaration();
+			decl.Declaration.File = TGSI_FILE_INPUT;
+			decl.Declaration.Semantic = true;
+			decl.Range.First = decl.Range.Last = inbase + ctx->two_side_colors;
+			decl.Semantic.Name = TGSI_SEMANTIC_FACE;
+			decl.Semantic.Index =
+				info->input_semantic_index[ctx->two_side_idx[i]];
+			tctx->emit_declaration(tctx, &decl);
+
+			ctx->face_idx = decl.Range.First;
+		}
 
 		/* declare temp regs: */
 		for (i = 0; i < ctx->numtmp; i++) {
@@ -1022,6 +1053,14 @@ transform_instr(struct tgsi_transform_context *tctx,
 			ctx->tmp[i].dst.Register.File  = TGSI_FILE_TEMPORARY;
 			ctx->tmp[i].dst.Register.Index = tmpbase + i;
 			ctx->tmp[i].dst.Register.WriteMask = TGSI_WRITEMASK_XYZW;
+		}
+
+		/* additional temps for COLOR/BCOLOR selection: */
+		for (i = 0; i < ctx->two_side_colors; i++) {
+			decl = tgsi_default_full_declaration();
+			decl.Declaration.File = TGSI_FILE_TEMPORARY;
+			decl.Range.First = decl.Range.Last = tmpbase + ctx->numtmp + i;
+			tctx->emit_declaration(tctx, &decl);
 		}
 
 		ctx->emitted_decls = 1;
@@ -1125,6 +1164,22 @@ fd_transform_lowering(const struct fd_lowering_config *config,
 
 	tgsi_scan_shader(tokens, info);
 
+	/* if we are adding fragment shader support to emulate two-sided
+	 * color, then figure out the number of additional inputs we need
+	 * to create for BCOLOR's..
+	 */
+	if ((info->processor == TGSI_PROCESSOR_FRAGMENT) &&
+			config->color_two_side) {
+		unsigned i;
+		ctx.face_idx = -1;
+		for (i = 0; i <= info->file_max[TGSI_FILE_INPUT]; i++) {
+			if (info->input_semantic_name[i] == TGSI_SEMANTIC_COLOR)
+				ctx.two_side_idx[ctx.two_side_colors++] = i;
+			if (info->input_semantic_name[i] == TGSI_SEMANTIC_FACE)
+				ctx.face_idx = i;
+		}
+	}
+
 #define OPCS(x) ((config->lower_ ## x) ? info->opcode_count[TGSI_OPCODE_ ## x] : 0)
 	/* if there are no instructions to lower, then we are done: */
 	if (!(OPCS(DST) ||
@@ -1140,7 +1195,8 @@ fd_transform_lowering(const struct fd_lowering_config *config,
 			OPCS(DP3) ||
 			OPCS(DPH) ||
 			OPCS(DP2) ||
-			OPCS(DP2A)))
+			OPCS(DP2A) ||
+			ctx.two_side_colors))
 		return NULL;
 
 #if 0  /* debug */
@@ -1207,13 +1263,17 @@ fd_transform_lowering(const struct fd_lowering_config *config,
 		numtmp = MAX2(numtmp, DOTP_TMP);
 	}
 
-	if (info->processor == TGSI_PROCESSOR_FRAGMENT) {
-		if (config->color_two_side) {
-// XXX
-		}
-	}
-
+	/* specifically don't include two_side_colors temps in the count: */
 	ctx.numtmp = numtmp;
+
+	if (ctx.two_side_colors) {
+		newlen += 32 * ctx.two_side_colors;
+		/* note: we permanently consume temp regs, re-writing references
+		 * to IN.COLOR[n] to TEMP[m] (holding the output of of the CMP
+		 * instruction that selects which varying to use):
+		 */
+		numtmp += ctx.two_side_colors;
+	}
 
 	newlen += 2 * numtmp;
 	newlen += 5;        /* immediate */
