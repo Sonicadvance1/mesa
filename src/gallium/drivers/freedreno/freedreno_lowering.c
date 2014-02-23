@@ -1207,6 +1207,12 @@ fd_transform_lowering(const struct fd_lowering_config *config,
 		numtmp = MAX2(numtmp, DOTP_TMP);
 	}
 
+	if (info->processor == TGSI_PROCESSOR_FRAGMENT) {
+		if (config->color_two_side) {
+// XXX
+		}
+	}
+
 	ctx.numtmp = numtmp;
 
 	newlen += 2 * numtmp;
